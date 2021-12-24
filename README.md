@@ -7,8 +7,11 @@ This tool is deeply inspired by @s3cur3th1ssh1t and @Byt3bl33d3r work on Nim, an
 This tool is actually three:
 ## CsharpToNimByteArray
 This is a slight modification of the tool described at https://s3cur3th1ssh1t.github.io/Playing-with-OffensiveNim
+It dumps a Csharp tool's bytes to a txt file.
+
 ## nimCrypter
 a tool to encrypt/decript files
+
 ## nimLoader
 The main tool that loads dumped/encrypted files from file or url
 
