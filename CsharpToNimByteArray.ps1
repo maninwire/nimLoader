@@ -1,4 +1,7 @@
 function CSharpToNimByteArray
+# Code below is adapted from @s3cur3th1ssh1t' blog. Read linked article for more details.
+# https://s3cur3th1ssh1t.github.io/Playing-with-OffensiveNim/
+
 {
 
 Param
