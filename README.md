@@ -1,5 +1,5 @@
 # nimLoader
-Load dumped Csharp binaries as assemblies and launch them in memory.
+Load dumped Csharp binaries as assemblies and launch them in memory bypassing AMSI and ETW.
 
 This tool is deeply inspired by @s3cur3th1ssh1t and @Byt3bl33d3r work on Nim, and the  [Invoke-Sharploader](https://github.com/S3cur3Th1sSh1t/Invoke-SharpLoader) and [netLoader](https://github.com/Flangvik/NetLoader) tools.
 
