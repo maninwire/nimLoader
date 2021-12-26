@@ -8,18 +8,13 @@ import std/parseopt # option parser
 
 
 const iv: array[aes256.sizeBlock, byte]= [byte 55, 19, 19, 173, 190, 70, 130, 254, 26, 241, 14, 4, 213, 94, 108, 237]
-const envkey: string = "TARGETDOMAIN"
-
-
+const envkey: string = "myverysecretkey"
 
 func toByteSeq*(str: string): seq[byte] {.inline.} =
     # Converts a string to the corresponding byte sequence
     @(str.toOpenArrayByte(0, str.high))
 
-
 when isMainModule:
-
-
     var inFile: string =""
     var operation: string = ""
     var passkeystr:string=envkey# default key to our constant
