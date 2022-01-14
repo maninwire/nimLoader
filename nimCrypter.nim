@@ -7,7 +7,7 @@ import strutils
 import std/parseopt # option parser
 
 
-const iv: array[aes256.sizeBlock, byte]= [byte 55, 19, 19, 173, 190, 70, 130, 254, 26, 241, 14, 4, 213, 94, 108, 237]
+const iv: array[aes256.sizeBlock, byte]= [byte 148, 181, 90, 151, 26, 242, 253, 114, 7, 217, 24, 204, 125, 203, 26, 167]
 const envkey: string = "myverysecretkey"
 
 func toByteSeq*(str: string): seq[byte] {.inline.} =
