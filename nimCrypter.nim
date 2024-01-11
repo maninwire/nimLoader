@@ -1,5 +1,3 @@
-
-
 import nimcrypto
 import nimcrypto/sysrand
 import base64
@@ -10,7 +8,8 @@ import std/parseopt # option parser
 
 
 const iv: array[aes256.sizeBlock, byte]= [byte 148, 181, 90, 151, 26, 242, 253, 114, 7, 217, 24, 204, 125, 203, 26, 167]
-const envkey: string = "myverysecretkey"
+const envkey: string = "verysecretpass"
+var version="1.6"
 
 func toByteSeq*(str: string): seq[byte] {.inline.} =
     # Converts a string to the corresponding byte sequence
@@ -86,5 +85,4 @@ when isMainModule:
         system.quit()
 
 
-
-
+        
